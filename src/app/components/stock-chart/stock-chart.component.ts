@@ -37,7 +37,7 @@ import { LoaderComponent } from '../loader/loader.component';
   styles: [`
     .chart-wrapper {
       width: 100%;
-      height: 500px;
+      height: 550px;
       position: relative;
       min-height: 500px;
     }
