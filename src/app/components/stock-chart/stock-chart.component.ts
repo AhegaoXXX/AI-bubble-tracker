@@ -1,7 +1,7 @@
-﻿import { CommonModule } from '@angular/common';
+import { CommonModule } from '@angular/common';
 import { ChangeDetectionStrategy, ChangeDetectorRef, Component, Input, OnChanges, OnDestroy, OnInit, SimpleChanges } from '@angular/core';
 import { NgApexchartsModule } from 'ng-apexcharts';
-import { Subscription, interval } from 'rxjs';
+import { Subscription } from 'rxjs';
 import { DotcomDataService } from '../../services/dotcom-data.service';
 import { CandleData, StockService } from '../../services/stock.service';
 import { LoaderComponent } from '../loader/loader.component';
@@ -13,9 +13,8 @@ import { LoaderComponent } from '../loader/loader.component';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="chart-wrapper">
-      <div class="update-info" *ngIf="!isDotcom && !isLoading">
+      <div class="update-info" *ngIf="!isDotcom && !isLoading && lastUpdateTime">
         <span>Last update: {{lastUpdateTime | date:'short'}}</span>
-        <span>Next update in: {{nextUpdateIn}}s</span>
       </div>
       <app-loader *ngIf="isLoading"></app-loader>
       <apx-chart
@@ -102,15 +101,13 @@ import { LoaderComponent } from '../loader/loader.component';
 export class StockChartComponent implements OnInit, OnChanges, OnDestroy {
   @Input() isDotcom: boolean = false;
   @Input() symbol: string = '';
-  @Input() autoUpdate: boolean = true;
-  
+
   chartOptions: any = {};
   isLoading: boolean = true;
-  lastUpdateTime: Date = new Date();
-  nextUpdateIn: number = 30;
+  lastUpdateTime: Date | null = null;
+
+  private cachedData: CandleData[] = [];
   private subscription?: Subscription;
-  private updateInterval = interval(30000);
-  private countdownInterval?: Subscription;
 
   constructor(
     private stockService: StockService,
@@ -120,10 +117,6 @@ export class StockChartComponent implements OnInit, OnChanges, OnDestroy {
 
   ngOnInit(): void {
     this.loadData();
-    if (!this.isDotcom && this.autoUpdate) {
-      this.startUpdateInterval();
-      this.startCountdown();
-    }
   }
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -132,68 +125,23 @@ export class StockChartComponent implements OnInit, OnChanges, OnDestroy {
       this.cdr.markForCheck();
       this.loadData();
     }
-    
-    if (changes['autoUpdate']) {
-      if (this.autoUpdate && !this.isDotcom) {
-        this.startUpdateInterval();
-        this.startCountdown();
-      } else {
-        this.stopUpdateInterval();
-        this.stopCountdown();
-      }
-      this.cdr.markForCheck();
-    }
   }
 
   ngOnDestroy(): void {
-    this.stopUpdateInterval();
-    this.stopCountdown();
-  }
-
-  private startUpdateInterval(): void {
-    this.stopUpdateInterval();
-    this.subscription = this.updateInterval.subscribe(() => {
-      if (this.autoUpdate) {
-        this.isLoading = true;
-        this.cdr.markForCheck();
-        this.loadData();
-        this.nextUpdateIn = 30;
-      }
-    });
-  }
-
-  private stopUpdateInterval(): void {
     if (this.subscription) {
       this.subscription.unsubscribe();
-      this.subscription = undefined;
     }
   }
 
-  private startCountdown(): void {
-    this.stopCountdown();
-    this.countdownInterval = interval(1000).subscribe(() => {
-      if (this.autoUpdate) {
-        if (this.nextUpdateIn > 0) {
-          this.nextUpdateIn--;
-          this.cdr.markForCheck();
-        } else {
-          this.nextUpdateIn = 30;
-          this.cdr.markForCheck();
-        }
-      }
-    });
-  }
-
-  private stopCountdown(): void {
-    if (this.countdownInterval) {
-      this.countdownInterval.unsubscribe();
-      this.countdownInterval = undefined;
-    }
+  updateData(): void {
+    this.isLoading = true;
+    this.cdr.markForCheck();
+    this.loadData();
   }
 
   private loadData(): void {
     if (this.isDotcom) {
-      this.dotcomService.getDotcomBubbleData().subscribe({
+      this.subscription = this.dotcomService.getDotcomBubbleData().subscribe({
         next: (data) => {
           this.updateChart(this.optimizeData(data));
           this.isLoading = false;
@@ -201,14 +149,15 @@ export class StockChartComponent implements OnInit, OnChanges, OnDestroy {
         },
         error: (error) => {
           console.error('Error loading dotcom data:', error);
-          // Keep loader visible on error
+          this.isLoading = false;
           this.cdr.markForCheck();
         }
       });
     } else {
       if (this.symbol) {
-        this.stockService.getAIStocksData(this.symbol).subscribe({
+        this.subscription = this.stockService.getAIStocksData(this.symbol).subscribe({
           next: (data) => {
+            this.cachedData = data;
             this.updateChart(this.optimizeData(data));
             this.lastUpdateTime = new Date();
             this.isLoading = false;
@@ -216,7 +165,10 @@ export class StockChartComponent implements OnInit, OnChanges, OnDestroy {
           },
           error: (error) => {
             console.error(`Error loading data for ${this.symbol}:`, error);
-            // Keep loader visible on error
+            if (this.cachedData.length > 0) {
+              this.updateChart(this.optimizeData(this.cachedData));
+            }
+            this.isLoading = false;
             this.cdr.markForCheck();
           }
         });
@@ -228,19 +180,19 @@ export class StockChartComponent implements OnInit, OnChanges, OnDestroy {
     if (data.length <= 500) {
       return data;
     }
-    
+
     const maxPoints = 500;
     const step = Math.ceil(data.length / maxPoints);
     const optimized: CandleData[] = [];
-    
+
     for (let i = 0; i < data.length; i += step) {
       optimized.push(data[i]);
     }
-    
+
     if (optimized[optimized.length - 1] !== data[data.length - 1]) {
       optimized.push(data[data.length - 1]);
     }
-    
+
     return optimized;
   }
 

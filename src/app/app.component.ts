@@ -1,5 +1,5 @@
 ﻿import { CommonModule } from '@angular/common';
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, OnInit, TrackByFunction } from '@angular/core';
+import { ChangeDetectionStrategy, ChangeDetectorRef, Component, OnInit, TrackByFunction, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { LoaderComponent } from './components/loader/loader.component';
 import { StockChartComponent } from './components/stock-chart/stock-chart.component';
@@ -15,10 +15,10 @@ import { CompanyInfo, StockService } from './services/stock.service';
       <header class="header">
         <h1>AI Bubble</h1>
         <div class="selector-wrapper">
-          <select 
-            id="company-select" 
-            [(ngModel)]="selectedCompany" 
-            (change)="onCompanyChange()" 
+          <select
+            id="company-select"
+            [(ngModel)]="selectedCompany"
+            (change)="onCompanyChange()"
             class="company-select"
             [attr.aria-label]="'Select AI Company'"
             [disabled]="isLoadingCompanies"
@@ -28,29 +28,29 @@ import { CompanyInfo, StockService } from './services/stock.service';
               {{company.symbol}} - {{company.name}}
             </option>
           </select>
+          <button
+            class="refresh-button"
+            (click)="refreshChart()"
+            [disabled]="isRefreshDisabled"
+            [attr.title]="isRefreshDisabled ? 'Refresh available in ' + cooldownRemaining + 's' : 'Refresh data'"
+          >
+            <span class="refresh-icon">↻</span>
+            <span *ngIf="isRefreshDisabled && cooldownRemaining > 0" class="cooldown-text">{{cooldownRemaining}}s</span>
+          </button>
         </div>
       </header>
       <main class="main-content">
         <div class="chart-section">
-          <app-stock-chart 
-            [isDotcom]="false" 
+          <app-stock-chart
+            #aiChart
+            [isDotcom]="false"
             [symbol]="selectedCompany"
-            [autoUpdate]="autoUpdate"
           ></app-stock-chart>
         </div>
         <div class="chart-section">
           <app-stock-chart [isDotcom]="true"></app-stock-chart>
         </div>
       </main>
-      <div class="controls">
-        <button 
-          class="toggle-button"
-          (click)="toggleAutoUpdate()"
-          [class.active]="autoUpdate"
-        >
-          {{autoUpdate ? '⏸ Pause' : '▶ Resume'}} Auto-Update
-        </button>
-      </div>
     </div>
   `,
   styles: [`
@@ -79,7 +79,10 @@ import { CompanyInfo, StockService } from './services/stock.service';
     .selector-wrapper {
       display: flex;
       justify-content: center;
+      align-items: center;
       width: 100%;
+      gap: 8px;
+      flex-wrap: wrap;
     }
     .company-select {
       background: #2a2a2a;
@@ -104,6 +107,44 @@ import { CompanyInfo, StockService } from './services/stock.service';
     .company-select:disabled {
       opacity: 0.6;
       cursor: not-allowed;
+    }
+    .refresh-button {
+      background: #2a2a2a;
+      color: #ffffff;
+      border: 1px solid #3a3a3a;
+      border-radius: 4px;
+      padding: 8px 12px;
+      font-size: 0.9rem;
+      cursor: pointer;
+      outline: none;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      white-space: nowrap;
+      min-height: 36px;
+      position: relative;
+    }
+    .refresh-button:hover:not(:disabled) {
+      background: #3a3a3a;
+      border-color: #4a4a4a;
+    }
+    .refresh-button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .refresh-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.3s;
+    }
+    .refresh-button:hover:not(:disabled) .refresh-icon {
+      transform: rotate(180deg);
+    }
+    .cooldown-text {
+      font-size: 0.8rem;
+      min-width: 20px;
     }
     .main-content {
       display: flex;
@@ -177,6 +218,10 @@ import { CompanyInfo, StockService } from './services/stock.service';
         min-width: 180px;
         font-size: 0.85rem;
       }
+      .refresh-button {
+        font-size: 0.85rem;
+        padding: 6px 10px;
+      }
       .toggle-button {
         font-size: 0.85rem;
         padding: 8px 16px;
@@ -199,6 +244,10 @@ import { CompanyInfo, StockService } from './services/stock.service';
         font-size: 0.85rem;
         padding: 6px 12px;
         min-width: 160px;
+      }
+      .refresh-button {
+        font-size: 0.8rem;
+        padding: 6px 8px;
       }
       .chart-section {
         padding: 8px;
@@ -228,6 +277,10 @@ import { CompanyInfo, StockService } from './services/stock.service';
         padding: 5px 10px;
         min-width: 140px;
       }
+      .refresh-button {
+        font-size: 0.75rem;
+        padding: 5px 8px;
+      }
       .chart-section {
         padding: 6px;
       }
@@ -242,10 +295,16 @@ import { CompanyInfo, StockService } from './services/stock.service';
   `]
 })
 export class AppComponent implements OnInit {
+  @ViewChild('aiChart') aiChart?: StockChartComponent;
+
   aiCompanies: CompanyInfo[] = [];
   selectedCompany: string = '';
   isLoadingCompanies: boolean = true;
-  autoUpdate: boolean = true;
+  isRefreshDisabled: boolean = false;
+  cooldownRemaining: number = 0;
+
+  private cooldownTimer?: ReturnType<typeof setInterval>;
+  private readonly COOLDOWN_DURATION = 5000;
 
   constructor(
     private stockService: StockService,
@@ -261,7 +320,7 @@ export class AppComponent implements OnInit {
   loadCompanies(): void {
     this.isLoadingCompanies = true;
     this.cdr.markForCheck();
-    
+
     this.stockService.getAICompanies().subscribe(companies => {
       this.aiCompanies = companies;
       if (companies.length > 0 && !this.selectedCompany) {
@@ -276,8 +335,33 @@ export class AppComponent implements OnInit {
     this.cdr.markForCheck();
   }
 
-  toggleAutoUpdate(): void {
-    this.autoUpdate = !this.autoUpdate;
+  refreshChart(): void {
+    if (this.isRefreshDisabled || !this.aiChart) return;
+
+    this.aiChart.updateData();
+    this.startCooldown();
+  }
+
+  private startCooldown(): void {
+    if (this.cooldownTimer) {
+      clearInterval(this.cooldownTimer);
+    }
+
+    this.isRefreshDisabled = true;
+    this.cooldownRemaining = Math.ceil(this.COOLDOWN_DURATION / 1000);
     this.cdr.markForCheck();
+
+    this.cooldownTimer = setInterval(() => {
+      this.cooldownRemaining--;
+      this.cdr.markForCheck();
+
+      if (this.cooldownRemaining <= 0) {
+        this.isRefreshDisabled = false;
+        if (this.cooldownTimer) {
+          clearInterval(this.cooldownTimer);
+        }
+        this.cdr.markForCheck();
+      }
+    }, 1000);
   }
 }

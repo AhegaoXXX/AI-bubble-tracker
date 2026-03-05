@@ -14,11 +14,17 @@ export interface CompanyInfo {
   name: string;
 }
 
+export interface CacheEntry {
+  data: CandleData[];
+  timestamp: number;
+}
+
 @Injectable({
   providedIn: 'root'
 })
 export class StockService {
-  private cache: Map<string, { data: CandleData[], timestamp: number }> = new Map();
+  private cache: Map<string, CacheEntry> = new Map();
+  private fallbackCache: Map<string, CacheEntry> = new Map();
   private companiesCache: { companies: CompanyInfo[], timestamp: number } | null = null;
   private readonly CACHE_DURATION = 60000;
   private readonly COMPANIES_CACHE_DURATION = 3600000;
@@ -106,13 +112,20 @@ export class StockService {
       map(data => {
         try {
           const processedData = this.processRealData(symbol, data);
-          this.cache.set(cacheKey, { data: processedData, timestamp: Date.now() });
+          const entry: CacheEntry = { data: processedData, timestamp: Date.now() };
+          this.cache.set(cacheKey, entry);
+          this.fallbackCache.set(cacheKey, entry);
           return processedData;
         } catch (error) {
           throw error;
         }
       }),
       catchError((error) => {
+        const fallback = this.fallbackCache.get(cacheKey);
+        if (fallback) {
+          console.warn(`[${symbol}] Using fallback cache due to error:`, error);
+          return of(fallback.data);
+        }
         return throwError(() => error);
       }),
       shareReplay(1)
