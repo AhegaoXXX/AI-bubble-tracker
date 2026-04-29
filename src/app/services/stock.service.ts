@@ -135,9 +135,11 @@ export class StockService {
   private fetchFromYahooFinance(symbol: string, proxyIndex: number = 0): Observable<CandleData[]> {
     const period1 = Math.floor(this.AI_BUBBLE_START / 1000);
     const period2 = Math.floor(this.getCurrentDate() / 1000);
-    const directUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?period1=${period1}&period2=${period2}&interval=1d`;
-    
+    const yahooPath = `/v8/finance/chart/${symbol}?period1=${period1}&period2=${period2}&interval=1d`;
+    const directUrl = `https://query1.finance.yahoo.com${yahooPath}`;
+
     const proxies = [
+      `/api/yahoo${yahooPath}`,
       `https://corsproxy.io/?${encodeURIComponent(directUrl)}`,
       `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(directUrl)}`,
       `https://api.allorigins.win/raw?url=${encodeURIComponent(directUrl)}`,
